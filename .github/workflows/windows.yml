@@ -5,6 +5,7 @@ on:
     branches:
       - 'develop'
       - 'minor'
+      - 'guest-roles-null-fix'
   pull_request:
 
 env:
