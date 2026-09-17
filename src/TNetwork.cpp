@@ -452,16 +452,26 @@ std::shared_ptr<TClient> TNetwork::Authentication(TConnection&& RawConnection) {
     try {
         nlohmann::json AuthRes = nlohmann::json::parse(AuthResStr);
 
-        if (AuthRes["username"].is_string() && AuthRes["username"].size() > 0 && AuthRes["roles"].is_string()
+        // The authentication backend returns "roles": null for guest accounts, which
+        // the original is_string() check rejects outright, so guests can never join
+        // even with AllowGuests enabled. Accept null and treat it as an empty role.
+        const bool RolesOk = AuthRes["roles"].is_string() || AuthRes["roles"].is_null();
+
+        if (AuthRes["username"].is_string() && AuthRes["username"].size() > 0 && RolesOk
             && AuthRes["guest"].is_boolean() && AuthRes["identifiers"].is_array()) {
 
             Client->SetName(AuthRes["username"]);
-            Client->SetRoles(AuthRes["roles"]);
+            Client->SetRoles(AuthRes["roles"].is_string() ? AuthRes["roles"].get<std::string>() : std::string(""));
             Client->SetIsGuest(AuthRes["guest"]);
             for (const auto& ID : AuthRes["identifiers"]) {
                 auto Raw = std::string(ID);
                 auto SepIndex = Raw.find(':');
                 Client->SetIdentifier(Raw.substr(0, SepIndex), Raw.substr(SepIndex + 1));
+            }
+            // Guests come back with no identifiers at all. Give them one so anything
+            // downstream that expects to identify a client still has something to use.
+            if (AuthRes["identifiers"].empty()) {
+                Client->SetIdentifier("guest", AuthRes["username"].get<std::string>());
             }
         } else {
             beammp_error("Invalid authentication data received from authentication backend");
